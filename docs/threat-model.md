@@ -23,7 +23,9 @@ internal networks — are described in ADR-0002, ADR-0007, ADR-0011 and ADR-0014
    every client-controlled value (method, RSC header, probe header, path length) before sending.
 3. **nginx → Umami** on an internal network shared only by those two; **Umami → PostgreSQL** on
    another. Neither has an internet route.
-4. **Owner → Umami UI** via `127.0.0.1:8091` on the host, reached only through SSH.
+4. **Owner → Umami UI** at https://stats.aliakbari.dev: Cloudflare Access (owner's e-mail only), then
+   `access-gate` verifies Access's signed token at the origin, then Umami's login (ADR-0020). Fallback:
+   `127.0.0.1:8091` on the host through SSH.
 5. **GitHub Actions → production.** Build and test jobs run on GitHub-hosted runners. Only the
    deploy job runs on the self-hosted runner, and `deploy.sh` verifies a Sigstore-signed release
    manifest with a verifier pinned outside the release before changing anything.
@@ -45,7 +47,7 @@ internal networks — are described in ADR-0002, ADR-0007, ADR-0011 and ADR-0014
 | Report tampering after publication | Sigstore signature per file; `ledger recompute` detects inconsistent edits; summaries are bound to daily files by SHA-256 | — |
 | Forged analytics events (fake IP, user agent, time, website, host, visitor id) | ModSecurity refuses events setting `ip`, `userAgent`, `timestamp`, `browser`, `os`, `device`, `id`, or another website or host; rate limit 5/s per address (burst 50) | Bulk fake traffic from many addresses remains possible; analytics are never used as evidence |
 | Attacks through analytics fields (XSS, SQLi, RCE) | CRS inspects every field; for `url`, `referrer` and `title` only SQLi/RCE/RFI/protocol groups are excluded (measured false positives); XSS rules still apply; Umami uses parameterised queries and an escaping UI | — |
-| Umami admin exposed | UI only on host loopback (SSH tunnel), Umami login, default password replaced by `setup.sh bootstrap`; no share URLs | A host compromise exposes analytics data |
+| Umami admin exposed | stats.aliakbari.dev: Cloudflare Access + origin verification of the Access token (RS256, audience, issuer, expiry, e-mail allow-list; fails closed) + Umami login; loopback port via SSH as fallback; default password replaced; no share URLs | A host compromise exposes analytics data; a Cloudflare account compromise passes Access (Umami's login still applies) |
 | Known vulnerabilities in third-party images (Umami 3.4.0: Next.js, OpenSSL, sharp, …; postgres: Go stdlib in `gosu`) | Only `/x/s.js` and `POST /x/api/send` are reachable from the internet, through the firewall; the vulnerable features are not on those paths or not used (ADR-0018); internal networks without egress; read-only, non-root containers; CI reports the images on every run | The owner-only UI exposes all of Umami's routes; upstream fixes must be picked up by updating the pinned digests |
 | Spoofed location headers | Umami runs with `SKIP_LOCATION_HEADERS`; nginx sends only the truncated address | — |
 | Analytics or ledger failure takes the site down | nginx starts and serves without either; the tracker paths answer 204; deploys never wait on them | — |

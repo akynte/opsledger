@@ -42,7 +42,9 @@ Umami, used as an unmodified component, behind the site's own nginx and firewall
   server's own log, privately.
 - **Private access:** the UI listens on the host's loopback only (nginx :8091 →
   `127.0.0.1:8091`), reached through an SSH tunnel, behind Umami's login. The default admin
-  password is replaced by `infra/analytics/setup.sh bootstrap`. No share URLs.
+  password is replaced by `infra/analytics/setup.sh bootstrap`. No share URLs. *Amended by
+  ADR-0020:* also at https://stats.aliakbari.dev behind Cloudflare Access, with the Access token
+  verified at the origin; the tunnel remains as a fallback.
 - **Isolation and retention:** Umami and its PostgreSQL run on internal networks with no internet
   route, read-only root filesystems and memory limits, only when the owner has created the secrets
   file (Compose profile `analytics`). A retention job deletes events, sessions and their data older
@@ -70,5 +72,5 @@ Umami, used as an unmodified component, behind the site's own nginx and firewall
   standard-library issues in `gosu`. None is on a path the internet can reach: nginx forwards only
   the tracker script and the collection endpoint, through the firewall; QUIC, image optimisation,
   MySQL and WebSockets are not used; `gosu` never runs because the database runs as its own
-  non-root user. The owner-only UI exposes every Umami route, but only through SSH. CI reports these
+  non-root user. The owner-only UI exposes every Umami route, but only through SSH or, since ADR-0020, after Cloudflare Access and an origin-verified Access token. CI reports these
   images on every run (report only), and the pins are updated when upstream releases fixes.
