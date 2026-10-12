@@ -1,0 +1,92 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "opsledger — operational evidence of aliakbari.dev",
+    "version": "1.0.0",
+    "description": "Read-only. Computed by the production host from nginx's request stream (self-reported, unsigned). Only completed UTC days are published; nothing here contains per-request or per-visitor data. Signed daily reports, which add an external probe, are published by the ops-publish workflow. See docs/adr/0016 and docs/adr/0017."
+  },
+  "servers": [{ "url": "https://aliakbari.dev" }],
+  "paths": {
+    "/api/v1/ops/": {
+      "get": {
+        "summary": "Index: endpoints, schemas and where signed reports are published",
+        "responses": { "200": { "description": "Index", "content": { "application/json": {} } } }
+      }
+    },
+    "/api/v1/ops/status": {
+      "get": {
+        "summary": "Collection status: since when, which build, which release; no traffic data",
+        "responses": { "200": { "description": "Status", "content": { "application/json": {} } } }
+      }
+    },
+    "/api/v1/ops/summary": {
+      "get": {
+        "summary": "Rolling 28-day summary of the completed days in the host's database (origin observer only)",
+        "responses": {
+          "200": {
+            "description": "ops-summary-v1",
+            "content": { "application/json": { "schema": { "$ref": "https://aliakbari.dev/schemas/ops-summary-v1.json" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/ops/daily/{date}": {
+      "get": {
+        "summary": "One completed UTC day (origin observer only)",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+            "description": "A UTC day that ended at least 10 minutes ago and is within the retention window (35 days)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ops-rollup-v1",
+            "content": { "application/json": { "schema": { "$ref": "https://aliakbari.dev/schemas/ops-rollup-v1.json" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/release": {
+      "get": {
+        "summary": "The host's deployment record and how to verify the release it names",
+        "responses": {
+          "200": { "description": "reported_by, trust, release (release-v1) and verification commands", "content": { "application/json": {} } },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "responses": {
+      "Error": {
+        "description": "JSON error with Cache-Control: no-store",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["error"],
+              "properties": {
+                "error": {
+                  "type": "object",
+                  "required": ["code", "message", "request_id"],
+                  "properties": {
+                    "code": { "enum": ["bad_request", "not_found", "method_not_allowed", "overloaded", "timeout", "unavailable", "internal"] },
+                    "message": { "type": "string" },
+                    "request_id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

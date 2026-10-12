@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aliakbari.dev/schemas/ops-summary-v1.json",
+  "title": "opsledger rolling summary, derived only from the daily reports it lists by SHA-256",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "report_version",
+    "sli_version",
+    "service",
+    "generator",
+    "window",
+    "days",
+    "missing_days",
+    "targets",
+    "origin",
+    "probe",
+    "limitations"
+  ],
+  "properties": {
+    "schema": { "const": "https://aliakbari.dev/schemas/ops-summary-v1.json" },
+    "report_version": { "const": 1 },
+    "sli_version": { "type": "integer", "minimum": 1 },
+    "service": { "type": "string", "pattern": "^https://[a-z0-9.-]+$" },
+    "generator": { "$ref": "ops-rollup-v1.json#/$defs/generator" },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["first_date", "last_date", "days"],
+      "properties": {
+        "first_date": { "$ref": "#/$defs/date" },
+        "last_date": { "$ref": "#/$defs/date" },
+        "days": { "type": "integer", "minimum": 1, "maximum": 366 }
+      }
+    },
+    "days": {
+      "type": "array",
+      "maxItems": 366,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["date", "sha256", "origin", "probe"],
+        "properties": {
+          "date": { "$ref": "#/$defs/date" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "origin": { "type": "boolean" },
+          "probe": { "type": "boolean" }
+        }
+      }
+    },
+    "missing_days": { "type": "array", "maxItems": 366, "items": { "$ref": "#/$defs/date" } },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability", "latency", "probe", "completeness"],
+      "properties": {
+        "availability": { "$ref": "ops-rollup-v1.json#/$defs/ratio" },
+        "latency": { "$ref": "ops-rollup-v1.json#/$defs/ratio" },
+        "probe": { "$ref": "ops-rollup-v1.json#/$defs/ratio" },
+        "completeness": { "$ref": "ops-rollup-v1.json#/$defs/ratio" }
+      }
+    },
+    "origin": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "days_with_data",
+            "availability",
+            "availability_budget",
+            "latency",
+            "latency_budget",
+            "latency_by_class",
+            "percentiles",
+            "excluded",
+            "ingest",
+            "reconciliation",
+            "completeness",
+            "coverage",
+            "releases"
+          ],
+          "properties": {
+            "days_with_data": { "type": "integer", "minimum": 0 },
+            "availability": { "$ref": "ops-rollup-v1.json#/$defs/proportion" },
+            "availability_budget": { "$ref": "#/$defs/budget" },
+            "latency": { "$ref": "ops-rollup-v1.json#/$defs/proportion" },
+            "latency_budget": { "$ref": "#/$defs/budget" },
+            "latency_by_class": { "$ref": "ops-rollup-v1.json#/$defs/latencyClasses" },
+            "percentiles": { "$ref": "ops-rollup-v1.json#/$defs/percentileClasses" },
+            "excluded": { "$ref": "ops-rollup-v1.json#/$defs/excluded" },
+            "ingest": { "$ref": "ops-rollup-v1.json#/$defs/ingest" },
+            "reconciliation": { "$ref": "ops-rollup-v1.json#/$defs/reconciliation" },
+            "completeness": { "$ref": "ops-rollup-v1.json#/$defs/proportion" },
+            "coverage": { "$ref": "ops-rollup-v1.json#/$defs/coverage" },
+            "releases": { "type": "array", "items": { "$ref": "ops-rollup-v1.json#/$defs/sha" } }
+          }
+        }
+      ]
+    },
+    "probe": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "days_with_data",
+            "expected_slots",
+            "observed_slots",
+            "runs",
+            "checks",
+            "budget",
+            "zero_failure_upper_bound",
+            "failures",
+            "home_latency"
+          ],
+          "properties": {
+            "days_with_data": { "type": "integer", "minimum": 0 },
+            "expected_slots": { "type": "integer", "minimum": 0 },
+            "observed_slots": { "type": "integer", "minimum": 0 },
+            "runs": { "$ref": "ops-rollup-v1.json#/$defs/proportion" },
+            "checks": { "$ref": "ops-rollup-v1.json#/$defs/proportion" },
+            "budget": { "$ref": "#/$defs/budget" },
+            "zero_failure_upper_bound": { "oneOf": [{ "type": "null" }, { "$ref": "ops-rollup-v1.json#/$defs/ratio" }] },
+            "failures": { "type": "integer", "minimum": 0 },
+            "home_latency": { "oneOf": [{ "type": "null" }, { "$ref": "ops-rollup-v1.json#/$defs/percentiles" }] }
+          }
+        }
+      ]
+    },
+    "limitations": { "$ref": "ops-rollup-v1.json#/$defs/limitations" }
+  },
+  "$defs": {
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "eligible", "bad", "allowed", "consumed", "remaining", "defined"],
+      "properties": {
+        "target": { "$ref": "ops-rollup-v1.json#/$defs/ratio" },
+        "eligible": { "type": "integer", "minimum": 0 },
+        "bad": { "type": "integer", "minimum": 0 },
+        "allowed": { "type": "number", "minimum": 0 },
+        "consumed": { "type": "number", "minimum": 0 },
+        "remaining": { "type": "number" },
+        "defined": { "type": "boolean" }
+      }
+    }
+  }
+}

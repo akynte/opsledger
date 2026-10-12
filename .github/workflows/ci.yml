@@ -1,0 +1,59 @@
+name: ci
+
+# Tests the code, then recomputes every published report and verifies every signature.
+# Runs on pushes (code mirrored from the site's repository), by hand, and before each release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: go (vet, race, fuzz, vulnerabilities)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, cache-dependency-path: go.sum }
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - run: go vet ./...
+      - name: Tests (race detector)
+        run: go test -race -count=1 ./...
+      - name: Fuzz the parsers and the histogram (15 s each)
+        run: |
+          go test -run '^$' -fuzz '^FuzzParseDatagram$' -fuzztime 15s ./internal/ingest
+          go test -run '^$' -fuzz '^FuzzRecordAndMerge$' -fuzztime 15s ./internal/histogram
+          go test -run '^$' -fuzz '^FuzzDecodeValidate$' -fuzztime 15s ./internal/histogram
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+  reports:
+    name: published reports recompute and their signatures verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, cache-dependency-path: go.sum }
+      - run: go build -o "$RUNNER_TEMP/ledger" ./cmd/ledger
+      - name: Recompute every report
+        run: |
+          if [ ! -d reports ]; then echo "no reports yet"; exit 0; fi
+          "$RUNNER_TEMP/ledger" recompute reports
+      - name: Verify every signature (Sigstore; signer = this repository's ops-publish workflow on main)
+        run: |
+          set -euo pipefail
+          [ -d reports ] || exit 0
+          n=0
+          while IFS= read -r f; do
+            "$RUNNER_TEMP/ledger" verify-bundle -artifact "$f" -repository "$GITHUB_REPOSITORY" \
+              -workflow .github/workflows/ops-publish.yml -ref refs/heads/main -tuf-cache "$RUNNER_TEMP/tuf" >/dev/null
+            n=$((n + 1))
+          done < <(find reports -name '*.json' ! -name '*.sigstore.json' | sort)
+          echo "$n signed files verified"

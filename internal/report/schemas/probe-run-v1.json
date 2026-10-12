@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aliakbari.dev/schemas/probe-run-v1.json",
+  "title": "One external probe run (opsledger probe), recorded on a GitHub-hosted runner",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "attempt",
+    "slot",
+    "started_at",
+    "finished_at",
+    "revision",
+    "runner_environment",
+    "target",
+    "checks",
+    "ok"
+  ],
+  "properties": {
+    "schema": { "const": "https://aliakbari.dev/schemas/probe-run-v1.json" },
+    "run_id": { "type": "string", "pattern": "^[0-9a-z-]{1,40}$" },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "slot": { "$ref": "#/$defs/ts" },
+    "started_at": { "$ref": "#/$defs/ts" },
+    "finished_at": { "$ref": "#/$defs/ts" },
+    "revision": { "type": "string", "pattern": "^([0-9a-f]{40}|unknown)$" },
+    "runner_environment": { "enum": ["github-hosted", "self-hosted", "local"] },
+    "target": { "type": "string", "pattern": "^https://[a-z0-9.:-]+$" },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "url", "ok", "status", "duration_us", "bytes", "error"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+          "url": { "type": "string", "pattern": "^https://[^\\s]{1,300}$" },
+          "ok": { "type": "boolean" },
+          "status": { "type": "integer", "minimum": 0, "maximum": 999 },
+          "duration_us": { "type": "integer", "minimum": 0 },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "error": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "ok": { "type": "boolean" }
+  },
+  "$defs": {
+    "ts": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

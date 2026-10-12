@@ -1,0 +1,397 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aliakbari.dev/schemas/ops-rollup-v1.json",
+  "title": "opsledger daily operational report: raw observations and the statistics derived from them",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "report_version",
+    "sli_version",
+    "date",
+    "window",
+    "service",
+    "generator",
+    "origin",
+    "probe",
+    "status",
+    "limitations"
+  ],
+  "properties": {
+    "schema": { "const": "https://aliakbari.dev/schemas/ops-rollup-v1.json" },
+    "report_version": { "const": 1 },
+    "sli_version": { "type": "integer", "minimum": 1 },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "window": { "$ref": "#/$defs/window" },
+    "service": { "type": "string", "pattern": "^https://[a-z0-9.-]+$" },
+    "generator": { "$ref": "#/$defs/generator" },
+    "origin": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/origin" }] },
+    "probe": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/probe" }] },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "probe"],
+      "properties": {
+        "origin": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "probe": { "type": "string", "minLength": 1, "maxLength": 300 }
+      }
+    },
+    "limitations": { "$ref": "#/$defs/limitations" }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 },
+    "seconds": { "type": "integer", "minimum": 0 },
+    "ts": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    },
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "text": { "type": "string", "minLength": 1, "maxLength": 600 },
+    "limitations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" } },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": { "start": { "$ref": "#/$defs/ts" }, "end": { "$ref": "#/$defs/ts" } }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "commit"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "commit": { "type": "string", "pattern": "^([0-9a-f]{40}|unknown)$" }
+      }
+    },
+    "observer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "description"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+        "kind": { "enum": ["self-reported", "external"] },
+        "description": { "$ref": "#/$defs/text" }
+      }
+    },
+    "histogram": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scale", "zero_count", "offset", "counts", "sum", "min", "max"],
+      "properties": {
+        "scale": { "type": "integer", "minimum": -4, "maximum": 8 },
+        "zero_count": { "$ref": "#/$defs/count" },
+        "offset": { "type": "integer" },
+        "counts": { "oneOf": [{ "type": "null" }, { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/count" } }] },
+        "sum": { "$ref": "#/$defs/count" },
+        "min": { "$ref": "#/$defs/count" },
+        "max": { "$ref": "#/$defs/count" }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "observer",
+        "agent",
+        "total",
+        "ok",
+        "blocked",
+        "rate_limited",
+        "client_closed",
+        "server_error",
+        "s1xx",
+        "s2xx",
+        "s3xx",
+        "s4xx",
+        "s5xx",
+        "lat_eligible",
+        "lat_good",
+        "latency"
+      ],
+      "properties": {
+        "class": {
+          "enum": ["page", "rsc", "api", "static", "media", "analytics", "wellknown", "other", "internal", "plainhttp", "unknownhost"]
+        },
+        "observer": { "enum": ["organic", "probe"] },
+        "agent": { "enum": ["human", "bot"] },
+        "total": { "$ref": "#/$defs/count" },
+        "ok": { "$ref": "#/$defs/count" },
+        "blocked": { "$ref": "#/$defs/count" },
+        "rate_limited": { "$ref": "#/$defs/count" },
+        "client_closed": { "$ref": "#/$defs/count" },
+        "server_error": { "$ref": "#/$defs/count" },
+        "s1xx": { "$ref": "#/$defs/count" },
+        "s2xx": { "$ref": "#/$defs/count" },
+        "s3xx": { "$ref": "#/$defs/count" },
+        "s4xx": { "$ref": "#/$defs/count" },
+        "s5xx": { "$ref": "#/$defs/count" },
+        "lat_eligible": { "$ref": "#/$defs/count" },
+        "lat_good": { "$ref": "#/$defs/count" },
+        "latency": { "$ref": "#/$defs/histogram" }
+      }
+    },
+    "cells": { "type": "array", "maxItems": 96, "items": { "$ref": "#/$defs/cell" } },
+    "ingest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["received", "accepted", "malformed", "dropped", "rejected"],
+      "properties": {
+        "received": { "$ref": "#/$defs/count" },
+        "accepted": { "$ref": "#/$defs/count" },
+        "malformed": { "$ref": "#/$defs/count" },
+        "dropped": { "$ref": "#/$defs/count" },
+        "rejected": { "$ref": "#/$defs/count" }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nginx_requests", "received", "reconciled_seconds", "unreconciled_seconds"],
+      "properties": {
+        "nginx_requests": { "$ref": "#/$defs/count" },
+        "received": { "$ref": "#/$defs/count" },
+        "reconciled_seconds": { "$ref": "#/$defs/seconds" },
+        "unreconciled_seconds": { "$ref": "#/$defs/seconds" }
+      }
+    },
+    "proportion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n", "good", "bad", "ratio", "wilson95_lower", "wilson95_upper", "defined"],
+      "properties": {
+        "n": { "$ref": "#/$defs/count" },
+        "good": { "$ref": "#/$defs/count" },
+        "bad": { "$ref": "#/$defs/count" },
+        "ratio": { "$ref": "#/$defs/ratio" },
+        "wilson95_lower": { "$ref": "#/$defs/ratio" },
+        "wilson95_upper": { "$ref": "#/$defs/ratio" },
+        "defined": { "type": "boolean" }
+      }
+    },
+    "quantile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defined", "rank", "zero", "index", "lower_us", "upper_us", "reliable"],
+      "properties": {
+        "defined": { "type": "boolean" },
+        "rank": { "$ref": "#/$defs/count" },
+        "zero": { "type": "boolean" },
+        "index": { "type": "integer" },
+        "lower_us": { "$ref": "#/$defs/count" },
+        "upper_us": { "$ref": "#/$defs/count" },
+        "reliable": { "type": "boolean" }
+      }
+    },
+    "percentiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n", "p50", "p90", "p95", "p99", "histogram"],
+      "properties": {
+        "n": { "$ref": "#/$defs/count" },
+        "p50": { "$ref": "#/$defs/quantile" },
+        "p90": { "$ref": "#/$defs/quantile" },
+        "p95": { "$ref": "#/$defs/quantile" },
+        "p99": { "$ref": "#/$defs/quantile" },
+        "histogram": { "$ref": "#/$defs/histogram" }
+      }
+    },
+    "latencyClasses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page", "rsc", "api"],
+      "properties": {
+        "page": { "$ref": "#/$defs/proportion" },
+        "rsc": { "$ref": "#/$defs/proportion" },
+        "api": { "$ref": "#/$defs/proportion" }
+      }
+    },
+    "percentileClasses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page", "rsc", "api"],
+      "properties": {
+        "page": { "$ref": "#/$defs/percentiles" },
+        "rsc": { "$ref": "#/$defs/percentiles" },
+        "api": { "$ref": "#/$defs/percentiles" }
+      }
+    },
+    "excluded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocked", "rate_limited", "client_closed", "bot", "probe", "not_eligible"],
+      "properties": {
+        "blocked": { "$ref": "#/$defs/count" },
+        "rate_limited": { "$ref": "#/$defs/count" },
+        "client_closed": { "$ref": "#/$defs/count" },
+        "bot": { "$ref": "#/$defs/count" },
+        "probe": { "$ref": "#/$defs/count" },
+        "not_eligible": { "$ref": "#/$defs/count" }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": { "start": { "$ref": "#/$defs/ts" }, "end": { "$ref": "#/$defs/ts" } }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window_seconds", "covered_seconds", "ratio", "gaps"],
+      "properties": {
+        "window_seconds": { "$ref": "#/$defs/seconds" },
+        "covered_seconds": { "$ref": "#/$defs/seconds" },
+        "ratio": { "$ref": "#/$defs/ratio" },
+        "gaps": { "type": "array", "items": { "$ref": "#/$defs/gap" } }
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observer", "method", "recorder", "hours", "runs", "releases", "derived", "limitations"],
+      "properties": {
+        "observer": { "$ref": "#/$defs/observer" },
+        "method": { "$ref": "#/$defs/text" },
+        "recorder": { "$ref": "#/$defs/generator" },
+        "hours": {
+          "type": "array",
+          "minItems": 24,
+          "maxItems": 24,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hour", "cells", "ingest", "reconciliation"],
+            "properties": {
+              "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+              "cells": { "$ref": "#/$defs/cells" },
+              "ingest": { "$ref": "#/$defs/ingest" },
+              "reconciliation": { "$ref": "#/$defs/reconciliation" }
+            }
+          }
+        },
+        "runs": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start", "end", "clean_stop"],
+            "properties": {
+              "start": { "$ref": "#/$defs/ts" },
+              "end": { "$ref": "#/$defs/ts" },
+              "clean_stop": { "type": "boolean" }
+            }
+          }
+        },
+        "releases": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["at", "release_id"],
+            "properties": { "at": { "$ref": "#/$defs/ts" }, "release_id": { "$ref": "#/$defs/sha" } }
+          }
+        },
+        "derived": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "totals",
+            "availability",
+            "latency",
+            "latency_by_class",
+            "percentiles",
+            "excluded",
+            "ingest",
+            "reconciliation",
+            "completeness",
+            "coverage",
+            "active_releases"
+          ],
+          "properties": {
+            "totals": { "$ref": "#/$defs/cells" },
+            "availability": { "$ref": "#/$defs/proportion" },
+            "latency": { "$ref": "#/$defs/proportion" },
+            "latency_by_class": { "$ref": "#/$defs/latencyClasses" },
+            "percentiles": { "$ref": "#/$defs/percentileClasses" },
+            "excluded": { "$ref": "#/$defs/excluded" },
+            "ingest": { "$ref": "#/$defs/ingest" },
+            "reconciliation": { "$ref": "#/$defs/reconciliation" },
+            "completeness": { "$ref": "#/$defs/proportion" },
+            "coverage": { "$ref": "#/$defs/coverage" },
+            "active_releases": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["release_id", "from", "to"],
+                "properties": {
+                  "release_id": { "$ref": "#/$defs/sha" },
+                  "from": { "$ref": "#/$defs/ts" },
+                  "to": { "$ref": "#/$defs/ts" }
+                }
+              }
+            }
+          }
+        },
+        "limitations": { "$ref": "#/$defs/limitations" }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observer", "method", "interval_minutes", "runs", "derived", "limitations"],
+      "properties": {
+        "observer": { "$ref": "#/$defs/observer" },
+        "method": { "$ref": "#/$defs/text" },
+        "interval_minutes": { "enum": [5, 10, 15, 30, 60] },
+        "runs": { "type": "array", "maxItems": 1000, "items": { "$ref": "probe-run-v1.json" } },
+        "derived": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "expected_slots",
+            "observed_slots",
+            "missing_slots",
+            "duplicate_runs",
+            "runs",
+            "checks",
+            "zero_failure_upper_bound",
+            "failures",
+            "home_latency",
+            "max_start_delay_seconds"
+          ],
+          "properties": {
+            "expected_slots": { "$ref": "#/$defs/count" },
+            "observed_slots": { "$ref": "#/$defs/count" },
+            "missing_slots": { "type": "array", "items": { "$ref": "#/$defs/ts" } },
+            "duplicate_runs": { "$ref": "#/$defs/count" },
+            "runs": { "$ref": "#/$defs/proportion" },
+            "checks": { "$ref": "#/$defs/proportion" },
+            "zero_failure_upper_bound": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ratio" }] },
+            "failures": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["slot", "check", "error"],
+                "properties": {
+                  "slot": { "$ref": "#/$defs/ts" },
+                  "check": { "type": "string", "maxLength": 64 },
+                  "error": { "type": "string", "maxLength": 300 }
+                }
+              }
+            },
+            "home_latency": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/percentiles" }] },
+            "max_start_delay_seconds": { "type": "integer" }
+          }
+        },
+        "limitations": { "$ref": "#/$defs/limitations" }
+      }
+    }
+  }
+}

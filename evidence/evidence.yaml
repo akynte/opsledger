@@ -1,0 +1,87 @@
+# Claims this repository supports on https://aliakbari.dev (schema: evidence-v1). The release
+# workflow turns this into evidence.lock.json at a tagged commit. One rule is applied there, not
+# here: when reports/summary.json covers at least 14 days of both origin and probe data,
+# opsledger-measurement is published as MEASURED and cites that signed summary. The site's audit
+# re-checks the summary, its signature bundle and the 14 days independently.
+schema: https://aliakbari.dev/schemas/evidence-v1.json
+repo: akynte/opsledger
+items:
+  - id: opsledger-measurement
+    capability: observability
+    title: opsledger, operational evidence from nginx's request stream
+    claim: >-
+      A Go service receives one record per request from nginx over a Unix datagram socket, aggregates
+      them per minute into exact SLI counts and mergeable exponential histograms in SQLite, and counts
+      records lost in transit against nginx's own request counter. It runs in production for
+      aliakbari.dev.
+    verification: tested
+    environment: deployed
+    context: personal-lab
+    implementation: [internal/ingest/, internal/aggregate/, internal/histogram/, internal/storage/, internal/reconcile/, cmd/ledger/serve.go]
+    tests:
+      - path: internal/ingest/ingest_test.go
+        names: [TestReaderDropsWhenQueueIsFullInsteadOfBlocking, TestParseRejectsMalformed]
+      - path: internal/histogram/histogram_test.go
+        names: [TestIndexIsExactAtBoundaries, TestMergeIsCommutativeAndAssociative, TestQuantileBoundsContainTheTrueValue]
+      - path: internal/aggregate/aggregate_test.go
+        names: [TestRunWithRealReaderUnderConcurrency, TestFailedWritesAreRetriedAndBounded]
+      - path: cmd/ledger/main_test.go
+        names: [TestServeEndToEnd]
+    decisions: [docs/adr/0016-opsledger-operational-evidence.md]
+    ci_workflow: ci.yml
+    limitations:
+      - The origin view is reported by the host it describes and cannot see failures before nginx; the external probe samples every 5 minutes.
+      - Measured figures describe one personal website with little traffic, not a service at scale.
+    resume: { eligible: false }
+    related: [opsledger-recomputable-reports, opsledger-signed-releases]
+
+  - id: opsledger-recomputable-reports
+    capability: sre
+    title: Signed daily operational reports that recompute from their observations
+    claim: >-
+      Each UTC day is published as hourly counters and histograms plus every statistic derived from
+      them (SLIs with Wilson intervals, bucket-bounded percentiles, coverage, completeness, probe
+      results), signed with Sigstore by a scheduled workflow; `ledger recompute` rebuilds every
+      derived value from the observations and fails on any difference, including tampered counts,
+      intervals, percentiles, probe results and replaced files.
+    verification: tested
+    environment: deployed
+    context: personal-lab
+    implementation: [internal/report/, internal/stats/, internal/probe/, .github/workflows/ops-publish.yml]
+    tests:
+      - path: internal/report/report_test.go
+        names: [TestTamperingIsDetected, TestSummaryRecomputesAndIsBoundToItsDays, TestPublishedReportRecomputesCleanly]
+      - path: internal/stats/stats_test.go
+        names: [TestWilsonReferenceValues, TestZeroFailureUpperBound]
+    decisions: [docs/adr/0017-slos-and-recomputable-signed-reports.md]
+    ci_workflow: ci.yml
+    limitations:
+      - Recomputation proves the statistics follow from the observations, not that the observations are true.
+      - The probe samples every 5 minutes from GitHub's network; outages between runs go unseen.
+    resume: { eligible: false }
+    related: [opsledger-measurement]
+
+  - id: opsledger-signed-releases
+    capability: security
+    title: Signed releases and fail-closed deploys
+    claim: >-
+      The verifier the deploy uses accepts a release manifest only if its Sigstore signature is valid
+      and the signer is the expected workflow, repository, branch, commit, trigger and GitHub-hosted
+      runner, and only if every image digest about to be deployed is the signed one; every mismatch
+      is refused.
+    verification: tested
+    environment: deployed
+    context: personal-lab
+    implementation: [internal/sigverify/, internal/release/]
+    tests:
+      - path: internal/sigverify/sigverify_test.go
+        names: [TestClaimsRejected, TestCryptographicVerification]
+      - path: internal/release/release_test.go
+        names: [TestDeploymentMustMatchTheSignedManifest]
+    decisions: [docs/adr/0015-hosted-ci-signed-releases-fail-closed-deploys.md]
+    ci_workflow: ci.yml
+    limitations:
+      - The deploy scripts that call the verifier live in the site's private repository.
+      - The host's statement of which images it runs is not independently attested.
+    resume: { eligible: false }
+    related: [opsledger-measurement]

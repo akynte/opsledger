@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"Counts\":[0,1],\"mAX\":3}")

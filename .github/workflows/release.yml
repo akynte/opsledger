@@ -1,0 +1,84 @@
+name: release
+
+# Weekly evidence release for https://aliakbari.dev: runs CI at the current main commit, tags it,
+# writes evidence.lock.json (with the 14-day MEASURED promotion rule, see evidence/evidence.yaml)
+# and attaches it to a GitHub Release. The site's evidence-sync picks the release up by itself.
+on:
+  schedule:
+    - cron: "30 1 * * 1" # Mondays 01:30 UTC, after Monday's report
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write # tag and release
+      actions: write # dispatch ci.yml at the commit to be tagged
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }
+      - name: Run CI at the commit to be released
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          gh workflow run ci.yml --ref main
+          # Find the dispatched run at this commit and wait for it.
+          for _ in $(seq 1 30); do
+            id=$(gh run list -w ci.yml --event workflow_dispatch --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$id" ] && break; sleep 10
+          done
+          [ -n "${id:-}" ] || { echo "::error::dispatched CI run not found"; exit 1; }
+          gh run watch "$id" --exit-status --interval 20 >/dev/null
+      - name: Tag
+        id: tag
+        env:
+          SHA: ${{ steps.ci.outputs.sha }}
+        run: |
+          set -euo pipefail
+          tag="v0.1.$(date -u +%Y%m%d)"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then echo "$tag exists"; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git config user.name "akynte"
+          git config user.email "104795207+akynte@users.noreply.github.com"
+          git tag -a "$tag" -m "Evidence release $tag" "$SHA"
+          git push -q origin "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.tag.outputs.skip != '1'
+        with: { node-version: "24" }
+      - name: Validate the manifest and build evidence.lock.json
+        if: steps.tag.outputs.skip != '1'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          npm install --no-save --silent ajv@8.20.0 yaml@2.9.1
+          for s in defs-v1 evidence-v1; do curl -fsSL "https://aliakbari.dev/schemas/$s.json" -o "/tmp/$s.json"; done
+          node -e '
+            const Ajv = require("ajv/dist/2020").default; const y = require("yaml"); const fs = require("fs");
+            const ajv = new Ajv({ allErrors: true, strict: true });
+            ajv.addSchema(JSON.parse(fs.readFileSync("/tmp/defs-v1.json")));
+            const v = ajv.compile(JSON.parse(fs.readFileSync("/tmp/evidence-v1.json")));
+            if (!v(y.parse(fs.readFileSync("evidence/evidence.yaml", "utf8")))) { console.error(v.errors); process.exit(1); }'
+          node scripts/evidence-lock.mjs
+      - name: Publish the release
+        if: steps.tag.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "$TAG" \
+            --notes "Weekly evidence release: code and signed reports at this commit, with evidence.lock.json for https://aliakbari.dev." \
+            evidence.lock.json

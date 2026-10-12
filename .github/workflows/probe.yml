@@ -1,0 +1,38 @@
+name: probe
+
+# External probe of https://aliakbari.dev, every 5 minutes, from GitHub-hosted machines: outside
+# the production host and its network, through DNS, the CDN and TLS, like a visitor. Each run keeps
+# one probe-run-v1 record as an artifact; ops-publish adds a day's runs to that day's report.
+# GitHub may delay or skip scheduled runs; reports list the slots without a run.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROBE_INTERVAL: "5" # minutes; must match the cron schedule above and ops-publish.yml
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, cache-dependency-path: go.sum }
+      - name: Probe https://aliakbari.dev from outside
+        run: |
+          mkdir -p "$RUNNER_TEMP/probe"
+          go run ./cmd/ledger probe -target https://aliakbari.dev -interval "$PROBE_INTERVAL" \
+            -out "$RUNNER_TEMP/probe/probe-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/probe/*.json
+          if-no-files-found: warn
+          retention-days: 8

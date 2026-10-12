@@ -1,0 +1,93 @@
+name: ops-publish
+
+# Publishes the signed daily operational reports of https://aliakbari.dev into reports/:
+#   1. for every completed UTC day of the last week that has no report yet (so a skipped or failed
+#      run is repaired the next day), fetch the host's origin observations of that day from
+#      https://aliakbari.dev/api/v1/ops/daily/{date} and collect the day's probe runs (artifacts of
+#      probe.yml), then assemble the day's report;
+#   2. rebuild the 28-day summary;
+#   3. recompute everything (the publication fails if any value does not follow from its data);
+#   4. sign every new file with Sigstore, keylessly, as this workflow (public transparency log),
+#      and verify each signature;
+#   5. commit to main.
+# The signature proves which workflow published which bytes, and when; it does not prove that the
+# host observed truthfully. The external probe is the independent check.
+on:
+  schedule:
+    - cron: "20 0 * * *" # 00:20 UTC: the previous day has closed at the origin (10-minute margin)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-publish
+  cancel-in-progress: false
+
+env:
+  PROBE_INTERVAL: "5" # must match probe.yml
+  BACKFILL_DAYS: "6" # probe artifacts are kept 8 days
+  FIRST_DAY: "2026-10-12" # collection began; no reports for earlier days
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # commit the reports
+      actions: read # probe artifacts
+      id-token: write # keyless signing as this workflow
+      attestations: write # GitHub artifact attestations
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, cache-dependency-path: go.sum }
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with: { cosign-release: v3.1.3 }
+      - run: go build -ldflags "-X main.version=ops-publish -X main.commit=$GITHUB_SHA" -o "$RUNNER_TEMP/ledger" ./cmd/ledger
+      - name: Assemble every missing day of the last week
+        id: days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          L="$RUNNER_TEMP/ledger"; new=""
+          for back in $(seq "$BACKFILL_DAYS" -1 1); do
+            day="$(date -u -d "$back days ago" +%F)"; next="$(date -u -d "$day + 1 day" +%F)"
+            out="reports/${day:0:4}/${day:5:2}/$day.json"
+            [[ -f "$out" || "$day" < "$FIRST_DAY" ]] && continue
+            code=$(curl -s -o origin.json -w '%{http_code}' --max-time 30 "https://aliakbari.dev/api/v1/ops/daily/$day" || echo 000)
+            if [ "$code" = 200 ]; then set -- -origin origin.json; else set -- -origin-missing "the host did not serve the day (HTTP $code)"; fi
+            rm -rf probes && mkdir probes
+            for id in $(gh run list -R "$GITHUB_REPOSITORY" -w probe.yml --created "$day..$next" --limit 1000 --json databaseId --jq '.[].databaseId'); do
+              gh run download -R "$GITHUB_REPOSITORY" "$id" -D "probes/$id" >/dev/null 2>&1 || true
+            done
+            "$L" assemble -date "$day" "$@" -probes probes -interval "$PROBE_INTERVAL" -out "$out"
+            echo "assembled $day: origin HTTP $code, $(find probes -name '*.json' | wc -l) probe files"
+            new="$new $out"
+          done
+          echo "new=${new# }" >> "$GITHUB_OUTPUT"
+      - name: Summary, recompute, sign, verify
+        if: steps.days.outputs.new != ''
+        env:
+          NEW: ${{ steps.days.outputs.new }}
+        run: |
+          set -euo pipefail
+          L="$RUNNER_TEMP/ledger"
+          last="$(date -u -d yesterday +%F)"
+          "$L" summary -dir reports -last "$last" -days 28 -interval "$PROBE_INTERVAL" -out reports/summary.json
+          "$L" recompute reports
+          for f in $NEW reports/summary.json; do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+            "$L" verify-bundle -artifact "$f" -repository "$GITHUB_REPOSITORY" -workflow .github/workflows/ops-publish.yml -ref refs/heads/main
+          done
+      - name: Commit
+        if: steps.days.outputs.new != ''
+        run: |
+          set -euo pipefail
+          git config user.name "akynte"
+          git config user.email "104795207+akynte@users.noreply.github.com"
+          git add reports
+          git commit -q -m "reports: $(date -u -d yesterday +%F) (run $GITHUB_RUN_ID)"
+          for _ in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
