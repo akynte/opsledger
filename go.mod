@@ -2,7 +2,7 @@ module github.com/akynte/opsledger
 
 go 1.27
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
